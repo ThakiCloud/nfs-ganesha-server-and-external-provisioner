@@ -78,7 +78,7 @@ const (
 
 // NewNFSProvisioner creates a Provisioner that provisions NFS PVs backed by
 // the given directory.
-func NewNFSProvisioner(exportDir string, client kubernetes.Interface, outOfCluster bool, useGanesha bool, ganeshaConfig string, enableXfsQuota bool, serverHostname string, maxExports int, exportSubnet string) controller.Provisioner {
+func NewNFSProvisioner(exportDir string, client kubernetes.Interface, outOfCluster bool, useGanesha bool, ganeshaConfig string, enableXfsQuota bool, serverHostname string, maxExports int, exportSubnet string, sharedMode bool, sharedPath string) controller.Provisioner {
 	var exp exporter
 	if useGanesha {
 		exp = newGaneshaExporter(ganeshaConfig)
@@ -95,10 +95,10 @@ func NewNFSProvisioner(exportDir string, client kubernetes.Interface, outOfClust
 	} else {
 		quotaer = newDummyQuotaer()
 	}
-	return newNFSProvisionerInternal(exportDir, client, outOfCluster, exp, quotaer, serverHostname, maxExports, exportSubnet)
+	return newNFSProvisionerInternal(exportDir, client, outOfCluster, exp, quotaer, serverHostname, maxExports, exportSubnet, sharedMode, sharedPath)
 }
 
-func newNFSProvisionerInternal(exportDir string, client kubernetes.Interface, outOfCluster bool, exporter exporter, quotaer quotaer, serverHostname string, maxExports int, exportSubnet string) *nfsProvisioner {
+func newNFSProvisionerInternal(exportDir string, client kubernetes.Interface, outOfCluster bool, exporter exporter, quotaer quotaer, serverHostname string, maxExports int, exportSubnet string, sharedMode bool, sharedPath string) *nfsProvisioner {
 	if _, err := os.Stat(exportDir); os.IsNotExist(err) {
 		glog.Fatalf("exportDir %s does not exist!", exportDir)
 	}
@@ -133,6 +133,8 @@ func newNFSProvisionerInternal(exportDir string, client kubernetes.Interface, ou
 		serviceEnv:     serviceEnv,
 		namespaceEnv:   namespaceEnv,
 		nodeEnv:        nodeEnv,
+		sharedMode:     sharedMode,
+		sharedPath:     sharedPath,
 	}
 
 	return provisioner
@@ -177,6 +179,8 @@ type nfsProvisioner struct {
 	serviceEnv   string
 	namespaceEnv string
 	nodeEnv      string
+	sharedMode   bool
+	sharedPath   string
 }
 
 var _ controller.Provisioner = &nfsProvisioner{}
@@ -273,22 +277,36 @@ func (p *nfsProvisioner) createVolume(options controller.ProvisionOptions) (volu
 		return volume{}, &controller.IgnoredError{Reason: fmt.Sprintf("export limit of %v has been reached", p.maxExports)}
 	}
 
-	path := path.Join(p.exportDir, options.PVName)
+	// Determine directory name based on shared mode
+	var directory string
+	if p.sharedMode {
+		directory = p.sharedPath
+		glog.Infof("Using shared directory: %s", directory)
+	} else {
+		directory = options.PVName
+		glog.Infof("Using individual directory: %s", directory)
+	}
 
-	err = p.createDirectory(options.PVName, gid)
+	path := path.Join(p.exportDir, directory)
+
+	err = p.createDirectory(directory, gid)
 	if err != nil {
 		return volume{}, fmt.Errorf("error creating directory for volume: %v", err)
 	}
 
-	exportBlock, exportID, err := p.createExport(options.PVName, rootSquash)
+	exportBlock, exportID, err := p.createExport(directory, rootSquash)
 	if err != nil {
-		os.RemoveAll(path)
+		if !p.sharedMode {
+			os.RemoveAll(path)
+		}
 		return volume{}, fmt.Errorf("error creating export for volume: %v", err)
 	}
 
-	projectBlock, projectID, err := p.createQuota(options.PVName, options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)])
+	projectBlock, projectID, err := p.createQuota(directory, options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)])
 	if err != nil {
-		os.RemoveAll(path)
+		if !p.sharedMode {
+			os.RemoveAll(path)
+		}
 		return volume{}, fmt.Errorf("error creating quota for volume: %v", err)
 	}
 
@@ -461,7 +479,12 @@ func (p *nfsProvisioner) createDirectory(directory, gid string) error {
 	// TODO quotas
 	path := path.Join(p.exportDir, directory)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		return fmt.Errorf("the path already exists")
+		if p.sharedMode {
+			glog.Infof("Shared directory %s already exists, reusing it", path)
+			return nil
+		} else {
+			return fmt.Errorf("the path already exists")
+		}
 	}
 
 	perm := os.FileMode(0777 | os.ModeSetgid)
@@ -474,20 +497,26 @@ func (p *nfsProvisioner) createDirectory(directory, gid string) error {
 	}
 	// Due to umask, need to chmod
 	if err := os.Chmod(path, perm); err != nil {
-		os.RemoveAll(path)
+		if !p.sharedMode {
+			os.RemoveAll(path)
+		}
 		return err
 	}
 
 	if gid != "none" {
 		groupID, err := strconv.ParseUint(gid, 10, 64)
 		if err != nil {
-			os.RemoveAll(path)
+			if !p.sharedMode {
+				os.RemoveAll(path)
+			}
 			return fmt.Errorf("strconv.ParseUint failed with error: %v", err)
 		}
 		cmd := exec.Command("chgrp", strconv.FormatUint(groupID, 10), path)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			os.RemoveAll(path)
+			if !p.sharedMode {
+				os.RemoveAll(path)
+			}
 			return fmt.Errorf("chgrp failed with error: %v, output: %s", err, out)
 		}
 	}
@@ -496,9 +525,19 @@ func (p *nfsProvisioner) createDirectory(directory, gid string) error {
 }
 
 // createExport creates the export by adding a block to the appropriate config
-// file and exporting it
+// file and exporting it. In shared mode, it handles duplicate export errors
+// by reusing existing exports.
 func (p *nfsProvisioner) createExport(directory string, rootSquash bool) (string, uint16, error) {
 	path := path.Join(p.exportDir, directory)
+
+	// In shared mode, check if we need to create a new export or reuse existing one
+	if p.sharedMode {
+		// Try to find existing export info from file system
+		if existingBlock, existingID, err := p.findExistingExport(path); err == nil {
+			glog.Infof("Reusing existing export for shared path %s: ID=%d", path, existingID)
+			return existingBlock, existingID, nil
+		}
+	}
 
 	block, exportID, err := p.exporter.AddExportBlock(path, rootSquash, p.exportSubnet)
 	if err != nil {
@@ -507,11 +546,58 @@ func (p *nfsProvisioner) createExport(directory string, rootSquash bool) (string
 
 	err = p.exporter.Export(path)
 	if err != nil {
+		// In shared mode, if export already exists, try to reuse it
+		if p.sharedMode && strings.Contains(err.Error(), "already active") {
+			glog.Infof("Export already exists for shared path %s, trying to reuse it", path)
+			// Save the export info for future reuse
+			p.saveExportInfo(path, block, exportID)
+			return block, exportID, nil
+		}
+		
 		p.exporter.RemoveExportBlock(block, exportID)
 		return "", 0, fmt.Errorf("error exporting export block %s: %v", block, err)
 	}
 
+	// Save export info for shared mode
+	if p.sharedMode {
+		p.saveExportInfo(path, block, exportID)
+	}
+
 	return block, exportID, nil
+}
+
+// findExistingExport tries to find existing export info for the given path
+func (p *nfsProvisioner) findExistingExport(path string) (string, uint16, error) {
+	exportInfoPath := path + ".exportinfo"
+	data, err := ioutil.ReadFile(exportInfoPath)
+	if err != nil {
+		return "", 0, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	if len(lines) < 2 {
+		return "", 0, fmt.Errorf("invalid export info format")
+	}
+
+	exportIDStr := strings.TrimSpace(lines[0])
+	exportBlock := strings.TrimSpace(lines[1])
+
+	exportID, err := strconv.ParseUint(exportIDStr, 10, 16)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid export ID: %v", err)
+	}
+
+	return exportBlock, uint16(exportID), nil
+}
+
+// saveExportInfo saves export information for shared mode reuse
+func (p *nfsProvisioner) saveExportInfo(path, block string, exportID uint16) {
+	exportInfoPath := path + ".exportinfo"
+	data := fmt.Sprintf("%d\n%s\n", exportID, block)
+	
+	if err := ioutil.WriteFile(exportInfoPath, []byte(data), 0644); err != nil {
+		glog.Errorf("Failed to save export info for %s: %v", path, err)
+	}
 }
 
 // createQuota creates a quota for the directory by adding a project to

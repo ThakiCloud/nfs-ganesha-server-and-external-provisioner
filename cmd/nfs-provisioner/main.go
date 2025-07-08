@@ -46,6 +46,8 @@ var (
 	maxExports     = flag.Int("max-exports", -1, "The maximum number of volumes to be exported by this provisioner. New claims will be ignored once this limit has been reached. A negative value is interpreted as 'unlimited'. Default -1.")
 	fsidDevice     = flag.Bool("device-based-fsids", true, "If file system handles created by NFS Ganesha should be based on major/minor device IDs of the backing storage volume ('/export'). Default true.")
 	leaderElection = flag.Bool("leader-elect", false, "Start a leader election client and gain leadership before executing the main loop. Enable this when running replicated components for high availability. Default false.")
+	sharedMode     = flag.Bool("shared-mode", true, "If true, all PVCs will share the same directory instead of creating individual directories. Default true.")
+	sharedPath     = flag.String("shared-path", "shared", "The name of the shared directory when shared-mode is enabled. Default 'shared'.")
 )
 
 const (
@@ -131,7 +133,7 @@ func main() {
 
 	// Create the provisioner: it implements the Provisioner interface expected by
 	// the controller
-	nfsProvisioner := vol.NewNFSProvisioner(exportDir, clientset, outOfCluster, *useGanesha, ganeshaConfig, *enableXfsQuota, *serverHostname, *maxExports, *exportSubnet)
+	nfsProvisioner := vol.NewNFSProvisioner(exportDir, clientset, outOfCluster, *useGanesha, ganeshaConfig, *enableXfsQuota, *serverHostname, *maxExports, *exportSubnet, *sharedMode, *sharedPath)
 
 	// Start the provision controller which will dynamically provision NFS PVs
 	pc := controller.NewProvisionController(

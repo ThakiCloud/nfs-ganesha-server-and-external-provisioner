@@ -69,6 +69,18 @@ func (p *nfsProvisioner) provisioned(volume *v1.PersistentVolume) (bool, error) 
 }
 
 func (p *nfsProvisioner) deleteDirectory(volume *v1.PersistentVolume) error {
+	// In shared mode, check if this is the shared directory
+	if p.sharedMode {
+		// Get the NFS path from PV spec
+		if volume.Spec.NFS != nil && volume.Spec.NFS.Path != "" {
+			expectedSharedPath := path.Join(p.exportDir, p.sharedPath)
+			if volume.Spec.NFS.Path == expectedSharedPath {
+				// This is a shared directory - don't delete it
+				return nil
+			}
+		}
+	}
+
 	path := path.Join(p.exportDir, volume.ObjectMeta.Name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
@@ -81,6 +93,18 @@ func (p *nfsProvisioner) deleteDirectory(volume *v1.PersistentVolume) error {
 }
 
 func (p *nfsProvisioner) deleteExport(volume *v1.PersistentVolume) error {
+	// In shared mode, check if this is the shared export
+	if p.sharedMode {
+		// Get the NFS path from PV spec
+		if volume.Spec.NFS != nil && volume.Spec.NFS.Path != "" {
+			expectedSharedPath := path.Join(p.exportDir, p.sharedPath)
+			if volume.Spec.NFS.Path == expectedSharedPath {
+				// This is a shared export - don't remove it
+				return nil
+			}
+		}
+	}
+
 	block, exportID, err := getBlockAndID(volume, annExportBlock, annExportID)
 	if err != nil {
 		return fmt.Errorf("error getting block &/or id from annotations: %v", err)

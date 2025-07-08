@@ -18,15 +18,18 @@ all: build
 include release-tools/build.make
 
 ifeq ($(REGISTRY),)
-	REGISTRY = gcr.io/k8s-staging-sig-storage/
+	REGISTRY = ghcr.io/yunjae-park1111/nfs-provisioner
 endif
 
 ifeq ($(VERSION),)
-	VERSION = latest
+	VERSION = thaki-v1.0.0
 endif
 
 IMAGE_ARM = $(REGISTRY)nfs-provisioner-arm:$(VERSION)
 MUTABLE_IMAGE_ARM = $(REGISTRY)nfs-provisioner-arm:latest
+
+IMAGE_AMD64 = $(REGISTRY)/nfs-provisioner-amd64:$(VERSION)
+MUTABLE_IMAGE_AMD64 = $(REGISTRY)/nfs-provisioner-amd64:latest
 
 build-docker-arm:
 	GOOS=linux GOARCH=arm GOARM=7 go build -o deploy/docker/nfs-provisioner ./cmd/nfs-provisioner
@@ -45,6 +48,23 @@ push-arm: container-arm
 	docker push $(IMAGE_ARM)
 	docker push $(MUTABLE_IMAGE_ARM)
 .PHONY: push-arm
+
+build-docker-amd64:
+	GOOS=linux GOARCH=amd64 go build -o deploy/docker/nfs-provisioner ./cmd/nfs-provisioner
+.PHONY: build-docker-amd64
+
+container-amd64: build-docker-amd64 quick-container-amd64
+.PHONY: container-amd64
+
+quick-container-amd64:
+	docker build -t $(MUTABLE_IMAGE_AMD64) deploy/docker
+	docker tag $(MUTABLE_IMAGE_AMD64) $(IMAGE_AMD64)
+.PHONY: quick-container-amd64
+
+push-amd64: container-amd64
+	docker push $(IMAGE_AMD64)
+	docker push $(MUTABLE_IMAGE_AMD64)
+.PHONY: push-amd64
 
 clean-binary:
 	rm -f deploy/docker/nfs-provisioner
