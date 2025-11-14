@@ -92,7 +92,7 @@ their default values.
 
 ```console
 $ helm install nfs-server-provisioner nfs-ganesha-server-and-external-provisioner/nfs-server-provisioner \
-  --set=image.tag=v1.0.8,resources.limits.cpu=200m
+  --set=image.tag=v9.0,resources.limits.cpu=200m
 ```
 
 Alternatively, a YAML file that specifies the values for the above parameters

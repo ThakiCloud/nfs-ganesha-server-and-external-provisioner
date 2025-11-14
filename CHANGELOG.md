@@ -1,5 +1,5 @@
 # v1.6.0
-- Rebase on Fedora 36
+- Rebase on Fedora 41
 - Upgrade Ganesha to 9.0
 - Switch to new repo for dbus
 
