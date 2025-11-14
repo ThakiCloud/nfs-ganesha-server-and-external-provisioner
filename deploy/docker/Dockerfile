@@ -13,10 +13,11 @@
 # limitations under the License.
 
 # Update only after new version of deploy/base/Dockerfile change has built
-ARG GANESHA_VERSION=V4.0.8
+ARG GANESHA_VERSION=V9.0
+ARG ORG_NAME=kubernetes-sigs
 
 
-FROM ghcr.io/kubernetes-sigs/nfs-ganesha:${GANESHA_VERSION}
+FROM ghcr.io/${ORG_NAME}/nfs-ganesha:${GANESHA_VERSION}
 
 ARG binary=nfs-provisioner
 COPY deploy/docker/${binary} /nfs-provisioner

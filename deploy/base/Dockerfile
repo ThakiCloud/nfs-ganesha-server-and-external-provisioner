@@ -18,7 +18,7 @@
 #       arm64 architectures.
 #
 # List of Fedora versions: https://en.wikipedia.org/wiki/Fedora_version_history#Version_history
-ARG FEDORA_VERSION=36
+ARG FEDORA_VERSION=41
 
 
 
@@ -39,10 +39,10 @@ RUN dnf install -y \
 	git \
 	jemalloc-devel \
 	krb5-devel \
+	libacl-devel \
 	libblkid-devel \
 	libnfsidmap-devel \
 	libnsl2-devel \
-	libntirpc-devel \
 	libuuid-devel \
 	ninja-build \
 	patch \
@@ -51,13 +51,13 @@ RUN dnf install -y \
 
 # Clone specific version of ganesha
 # Keep version in sync with .github/workflows/docker-build.yml
-ARG GANESHA_VERSION=V4.0.8
+ARG GANESHA_VERSION=V9.0
 RUN git clone --branch ${GANESHA_VERSION} --recurse-submodules https://github.com/nfs-ganesha/nfs-ganesha
 WORKDIR /nfs-ganesha
 RUN mkdir -p /usr/local \
     && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
           -DBUILD_CONFIG=vfs_only -DUSE_FSAL_GLUSTER=OFF -DUSE_FSAL_RGW=OFF \
-          -DUSE_RADOS_RECOV=OFF -DRADOS_URLS=OFF -DUSE_SYSTEM_NTIRPC=ON \
+          -DUSE_RADOS_RECOV=OFF -DRADOS_URLS=OFF -DUSE_SYSTEM_NTIRPC=OFF \
           -G Ninja src/ \
     && sed -i 's|@SYSSTATEDIR@/lib/nfs/ganesha|/export|' src/include/config-h.in.cmake \
 	  && ninja \
@@ -77,7 +77,7 @@ RUN microdnf install -y \
 	jemalloc \
 	libblkid \
 	libnfsidmap \
-	libntirpc \
+	libacl \
 	libuuid \
 	nfs-utils \
 	rpcbind \
