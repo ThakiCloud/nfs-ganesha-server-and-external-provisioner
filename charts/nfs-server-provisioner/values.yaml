@@ -8,7 +8,7 @@ replicaCount: 1
 
 image:
   repository: registry.k8s.io/sig-storage/nfs-provisioner
-  tag: v9.0
+  tag: V9.0
   # digest:
   pullPolicy: IfNotPresent
 
