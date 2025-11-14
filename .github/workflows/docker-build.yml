@@ -10,6 +10,7 @@ on:
   push:
     paths:
       - "deploy/base/Dockerfile"
+      - "deploy/docker/Dockerfile"
       - ".github/workflows/docker-build.yml"
 
 jobs:
