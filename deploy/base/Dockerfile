@@ -39,10 +39,10 @@ RUN dnf install -y \
 	git \
 	jemalloc-devel \
 	krb5-devel \
+	libacl-devel \
 	libblkid-devel \
 	libnfsidmap-devel \
 	libnsl2-devel \
-	libntirpc-devel \
 	libuuid-devel \
 	ninja-build \
 	patch \
@@ -57,7 +57,7 @@ WORKDIR /nfs-ganesha
 RUN mkdir -p /usr/local \
     && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
           -DBUILD_CONFIG=vfs_only -DUSE_FSAL_GLUSTER=OFF -DUSE_FSAL_RGW=OFF \
-          -DUSE_RADOS_RECOV=OFF -DRADOS_URLS=OFF -DUSE_SYSTEM_NTIRPC=ON \
+          -DUSE_RADOS_RECOV=OFF -DRADOS_URLS=OFF -DUSE_SYSTEM_NTIRPC=OFF \
           -G Ninja src/ \
     && sed -i 's|@SYSSTATEDIR@/lib/nfs/ganesha|/export|' src/include/config-h.in.cmake \
 	  && ninja \
@@ -77,7 +77,7 @@ RUN microdnf install -y \
 	jemalloc \
 	libblkid \
 	libnfsidmap \
-	libntirpc \
+	libacl \
 	libuuid \
 	nfs-utils \
 	rpcbind \
