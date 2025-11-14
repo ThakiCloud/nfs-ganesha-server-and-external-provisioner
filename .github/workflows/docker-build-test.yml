@@ -21,20 +21,37 @@ jobs:
       fail-fast: false
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       # Action reference: https://github.com/docker/setup-qemu-action
       - name: Set up QEMU (for docker buildx)
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v4
 
       # Action reference: https://github.com/docker/setup-buildx-action
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v4
+
+      - name: Set lowercase repository owner
+        run: |
+          echo "REPO_OWNER_LOWERCASE=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       # Action reference: https://github.com/docker/build-push-action
-      - name: Build container
-        uses: docker/build-push-action@v2
+      - name: Build base container
+        uses: docker/build-push-action@v6
         with:
           context: ./deploy/base
           platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
           push: false
+          tags: ghcr.io/${{ env.REPO_OWNER_LOWERCASE }}/nfs-ganesha:V9.0
+
+      # Action reference: https://github.com/docker/build-push-action
+      - name: Build final nfs-provisioner container
+        uses: docker/build-push-action@v6
+        with:
+          context: ./deploy/docker
+          platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
+          push: false
+          build-args: |
+            GANESHA_VERSION=V9.0
+            ORG_NAME=${{ env.REPO_OWNER_LOWERCASE }}
+          tags: ghcr.io/${{ env.REPO_OWNER_LOWERCASE }}/nfs-provisioner:V9.0
