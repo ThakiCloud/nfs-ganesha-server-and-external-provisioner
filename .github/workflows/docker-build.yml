@@ -57,7 +57,8 @@ jobs:
       - name: Build final nfs-provisioner container
         uses: docker/build-push-action@v6
         with:
-          context: ./deploy/docker
+          context: .
+          file: ./deploy/docker/Dockerfile
           platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
           push: true
           build-args: |
